@@ -120,7 +120,7 @@ class LORSpider(Spider):
         Spider.__init__(self, name, **kwargs)
 #        #
 #        self.arch = LORUrlBuf(DATA_BASE_PATH + '/arch.pkl')
-        self.topic = LORUrlBuf(DATA_BASE_PATH + '/topic.pkl')
+#        self.topic = LORUrlBuf(DATA_BASE_PATH + '/topic.pkl')
 #        #
 #        with open('arch_urls.txt', 'r') as f:
 #            start_urls = f.readlines()
