@@ -319,14 +319,7 @@ class LORSpider(Spider):
         #Выводим количество удаленных сообщений
         return del_count
     #--------------------------------------------------------------------------
-    def get_topic_messages(self, response):
-        """
-        Парсим топик, сохраняем сообщения
-        """
-        out_file = DATA_BASE_PATH + '/thread' + re.sub(r'/', '_', self.topic.get()) + '.txt'
-        self.deleted_msg += self.get_comments(response, out_file)
-        #Этот топик мы уже прошли
-        self.topic.pop(response.url)
+    def go_next_topic(self, response):
         #Обходим все страницы из self.topic
         next_topic = self.topic.get()
         if next_topic:
@@ -335,6 +328,18 @@ class LORSpider(Spider):
             sleep(4)
             return Request(next_url, callback=self.on_topic_enter)
         return self.logout(response)
+    #--------------------------------------------------------------------------
+    def get_topic_messages(self, response):
+        """
+        Парсим топик, сохраняем сообщения
+        """
+        out_file = DATA_BASE_PATH + '/thread' + re.sub(r'/', '_', self.topic.get()) + '.txt'
+        self.deleted_msg += self.get_comments(response, out_file)
+        #Этот топик мы уже прошли
+        self.topic.pop(response.url)
+        
+        return self.go_next_topic(response)
+        
     #--------------------------------------------------------------------------
     def on_topic_enter(self, response):
         """
@@ -346,10 +351,14 @@ class LORSpider(Spider):
         form = response.css('form[action="%s"]'%self.topic.urls[0])
         token = form.css('input[name="csrf"]::attr(value)').get()
         sleep(1)
-        return FormRequest.from_response(response,
-                                         formdata={'csrf': token, 'deleted':'1'},
-                                         callback=self.get_topic_messages,
-                                         dont_filter=True)
+        if form and token:
+            return FormRequest.from_response(response,
+                                             formdata={'csrf': token, 'deleted':'1'},
+                                             callback=self.get_topic_messages,
+                                             dont_filter=True)
+        
+        #Тема перемещена в архив, идем к следующей...
+        return self.go_next_topic(response)
     #==========================================================================
     def on_logout(self, response):
         """
