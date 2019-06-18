@@ -10,6 +10,5 @@
 /forum/web-development/
 /forum/club/
 /forum/multimedia/
-/forum/linux-hardware/
 /forum/science/
 /forum/mobile/
