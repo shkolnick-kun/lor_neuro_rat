@@ -1,0 +1,15 @@
+/forum/development/
+/forum/general/
+/forum/desktop/
+/forum/admin/
+/forum/linux-install/
+/forum/security/
+/forum/linux-hardware/
+/forum/talks/
+/forum/games/
+/forum/web-development/
+/forum/club/
+/forum/multimedia/
+/forum/linux-hardware/
+/forum/science/
+/forum/mobile/
