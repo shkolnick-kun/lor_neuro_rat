@@ -19,10 +19,31 @@
 
     Please contact with me by E-mail: shkolnick.kun@gmail.com
 """
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+    This file is a part of the lor_neuro_rat project.
+    Copyright (C) 2019 anonimous
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    Please contact with me by E-mail: shkolnick.kun@gmail.com
+"""
 from io import StringIO
-from json import JSONDecoder, JSONEncoder
+from json import JSONDecoder#, JSONEncoder
 import pickle as pk
-import re
+#import re
 from time import sleep
 
 from scrapy.spiders import Spider
@@ -30,7 +51,7 @@ from scrapy.http import Request, FormRequest
 
 import lorcfg as cfg
 
-DATA_BASE_PATH = 'data/download'
+DATA_BASE_PATH = 'data'
 
 class LORUrlBuf():
     """
@@ -105,8 +126,10 @@ class LORSpider(Spider):
     """
     name = 'GetLOR'
     domain_name = 'https://www.linux.org.ru'
-    login_page = 'https://www.linux.org.ru/login.jsp'
+    login_page = domain_name + '/login.jsp'
+    tracker_page = domain_name + '/tracker/'
     profile_page = domain_name + '/people/' + cfg.LOGIN + '/profile'
+    
     start_urls = [login_page]
     arch = []
     arch_n = 0
@@ -118,7 +141,7 @@ class LORSpider(Spider):
         Spider.__init__(self, name, **kwargs)
 #        #
 #        self.arch = LORUrlBuf(DATA_BASE_PATH + '/arch.pkl')
-#        self.topic = LORUrlBuf(DATA_BASE_PATH + '/topic.pkl')
+        self.topic = LORUrlBuf(DATA_BASE_PATH + '/topic.pkl')
 #        #
 #        with open('arch_urls.txt', 'r') as f:
 #            start_urls = f.readlines()
@@ -157,8 +180,10 @@ class LORSpider(Spider):
         if res['username'] == cfg.LOGIN and res['loggedIn']:
             self.log_print('Logged in... Will do the job...')
             #Постим сообщение
-            return Request(self.domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO, 
-                           callback=self.on_report_form_enter)
+            #return Request(self.domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO, 
+            #               callback=self.on_report_form_enter)
+            return Request(self.tracker_page, callback=self.on_tracker_enter)
+            
             #return self.logout(response)
 #            #Не закончили траверс архива
 #            if self.arch.urls:
@@ -208,45 +233,40 @@ class LORSpider(Spider):
         self.log_print('Не удалось запостить!!!')
         return self.logout(response)
     #==========================================================================
-#    def on_arch_enter(self, response):
-#        """
-#        Парсим страницы архива, форомируем список URL-ов для топиков
-#        """
-#        self.log_print('==================================')
-#        self.log_print('Arch left:', len(self.arch.urls), 'of', self.arch_n)
-#        self.log_print('==================================')
-#        msgtable = response.css('table[class="message-table"]')
-#        for l in msgtable.css('a::attr(href)').getall():
-#            if 'user-filter' in l or 'page' in l:
-#                continue
-#            l = l.split('?')[0]
-#            if l not in self.topic.urls:
-#                self.topic.append(l)
-#        #
-#        next_page = response.css('a[rel="next"]::attr(href)').get()
-#        if next_page:
-#            sleep(2)
-#            self.log_print('Will goto:', next_page)
-#            return Request(self.domain_name + next_page, callback=self.on_arch_enter)
-#        #
-#        self.arch.pop(response.url)
-#        #Обходим все страницы из self.arch.urls
-#        next_page = self.arch.get()
-#        if next_page:
-#            next_url = self.domain_name + next_page
-#            self.log_print('Will goto:', next_url)
-#            sleep(2)
-#            return Request(next_url, callback=self.on_arch_enter)
-#        #Сохраняем список топиков
-#        self.topic.dump()
-#        self.topic_n = len(self.topic.urls)
-#        #Сохраняем общее количество топиков
-#        with open(DATA_BASE_PATH + '/topic_num.pkl', 'wb+') as f:
-#            pk.dump(self.topic_n, f)
-#        #Теперь обходим топики
-#        self.log_print('Will visit topics...')
-#        next_url = self.domain_name + self.topic.get()
-#        return Request(next_url, callback=self.on_topic_enter)
+    def on_tracker_enter(self, response):
+        """
+        Парсим страницы трекера, форомируем список URL-ов для топиков
+        """
+        self.log_print('==================================')
+        msgtable = response.css('table[class="message-table"]').css('tbody')
+        #Список разделов
+        groups = msgtable.css('a[class="secondary"]::attr(href)').getall()
+        for row in msgtable.css('tr'):
+            for l in row.css('a::attr(href)').getall():
+                #
+                l = l.split('?')[0]
+                #
+                if l not in groups:
+                    #TODO: Извлечение url
+                    self.log_print(l)
+            #TODO: Извлечение времени в нормальнов формате
+            mod_tm = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
+            self.log_print(mod_tm)
+            
+    
+        for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
+            if 'следующие' in ref.css('::text').get():
+                sleep(2)
+                next_page = ref.css('::attr(href)').get()
+                self.log_print('Will goto:', next_page)
+                return Request(self.domain_name + next_page, 
+                               callback=self.on_tracker_enter)
+            
+        return self.logout(response)
+        #Теперь обходим топики
+        #self.log_print('Will visit topics...')
+        #next_url = self.domain_name + self.topic.get()
+        #return Request(next_url, callback=self.on_topic_enter)
 #    #==========================================================================
 #    def get_comments(self, response, out_file):
 #        """
