@@ -32,6 +32,50 @@ import lorcfg as cfg
 
 DATA_BASE_PATH = 'data'
 
+###############################################################################
+class LORMessage():
+    def __init__(self, msg_id, mod_time, text):
+        self.msg_id = msg_id
+        self.mod_time = mod_time
+        self.text = text
+        
+    def update(self, mod_time, text):
+        if self.mod_time != mod_time:
+            self.text = text
+            return text
+        return []
+###############################################################################
+class LORTopic():
+    def __init__(self, url, mod_time):
+        self.url = url
+        self.mot_time = mod_time
+        self.msg = []
+        self.msg_id = []
+        
+    def update(self, message):
+        if message.msg_id not in self.msg_id:
+            self.msg_id.append(message.msg_id)
+            self.msg.append(message)
+            return message.text
+        return self.msg[self.msg_id.index(message.msg_id)].update(message.mod_time, message.text)
+    
+    def refresh(self, mod_time):
+        if self.mod_time != mod_time:
+            self.mod_time = mod_time
+            return [self.url]
+        return []
+###############################################################################
+class LORTracker():
+    topic = []
+    url = []
+    
+    def update(self, topic_url, mod_time):
+        if topic_url not in self.url:
+            self.url.append(topic_url)
+            self.topic.append(LORTopic(topic_url, mod_time))
+            return topic_url
+        return self.topic[self.url.index(topic_url)].refresh(mod_time)
+###############################################################################
 class LORUrlBuf():
     """
     URL buffer class.
