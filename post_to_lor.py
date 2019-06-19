@@ -31,7 +31,6 @@ from scrapy.http import Request, FormRequest
 import lorcfg as cfg
 
 DATA_BASE_PATH = 'data'
-
 ###############################################################################
 class LORMessage():
     def __init__(self, msg_id, mod_time, text):
@@ -48,7 +47,7 @@ class LORMessage():
 class LORTopic():
     def __init__(self, url, mod_time):
         self.url = url
-        self.mot_time = mod_time
+        self.mod_time = mod_time
         self.msg = []
         self.msg_id = []
         
@@ -73,72 +72,8 @@ class LORTracker():
         if topic_url not in self.url:
             self.url.append(topic_url)
             self.topic.append(LORTopic(topic_url, mod_time))
-            return topic_url
+            return [topic_url]
         return self.topic[self.url.index(topic_url)].refresh(mod_time)
-###############################################################################
-class LORUrlBuf():
-    """
-    URL buffer class.
-    """
-    def __init__(self, fname):
-        self.fname = fname
-        try:
-            with open(fname, 'rb') as f:
-                self.urls = pk.load(f)
-            self.urls.sort()
-            self.sorted = True
-        except Exception as e:
-            print(e)
-            self.urls = []
-            self.sorted = False
-    #==========================================================================
-    def append(self, url):
-        """
-        Append a url to buffer
-        """
-        self.sorted = False
-        #
-        url = str(url)
-        #
-        if url not in self.urls:
-            self.urls.append(url)
-    #==========================================================================
-    def get(self):
-        """
-        Get current URL-list head
-        """
-        if not self.urls:
-            return ''
-        #
-        if not self.sorted:
-            self.urls.sort()
-        #
-        return self.urls[0]
-    #==========================================================================
-    def dump(self):
-        """
-        Dump URL-list to disk
-        """
-        if not self.sorted:
-            self.urls.sort()
-        #
-        with open(self.fname, 'wb+') as f:
-            pk.dump(self.urls, f)
-    #==========================================================================
-    def pop(self, url):
-        """
-        Pop the head of URL-list
-        """
-        if not self.sorted:
-            self.urls.sort()
-        #
-        url = str(url)
-        #
-        if self.urls[0] not in url:
-            raise ValueError
-        #
-        self.urls.remove(self.urls[0])
-        self.dump()
 ###############################################################################
 class LORSpider(Spider):
     """
@@ -149,37 +84,16 @@ class LORSpider(Spider):
     """
     name = 'GetLOR'
     domain_name = 'https://www.linux.org.ru'
-    login_page = domain_name + '/login.jsp'
     tracker_page = domain_name + '/tracker/'
     profile_page = domain_name + '/people/' + cfg.LOGIN + '/profile'
+    start_urls = [domain_name + '/login.jsp']
     
-    start_urls = [login_page]
-    arch = []
-    arch_n = 0
+    tracker = LORTracker()
     topic = []
-    topic_n = 0
-    deleted_msg = 0
+    update = 10
     #==========================================================================
     def __init__(self, name=None, **kwargs):
         Spider.__init__(self, name, **kwargs)
-#        #
-#        self.arch = LORUrlBuf(DATA_BASE_PATH + '/arch.pkl')
-#        self.topic = LORUrlBuf(DATA_BASE_PATH + '/topic.pkl')
-#        #
-#        with open('arch_urls.txt', 'r') as f:
-#            start_urls = f.readlines()
-#            self.arch_n = len(start_urls)
-#            if not self.arch.urls and not self.topic.urls:
-#                for url in start_urls:
-#                    self.arch.append(url[:-1])
-#                #Dump all the urls
-#                self.arch.dump()
-#        try:
-#            with open(DATA_BASE_PATH + '/topic_num.pkl', 'rb') as f:
-#                n = pk.load(f)
-#                self.topic_n = max(n, len(self.topic.urls))
-#        except Exception as e:
-#            print(e)
     #==========================================================================
     def log_print(self, *_objects, _sep=' ', _end=' '):
         """
@@ -205,17 +119,8 @@ class LORSpider(Spider):
             #Постим сообщение
             #return Request(self.domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO, 
             #               callback=self.on_report_form_enter)
+            self.topic = []
             return Request(self.tracker_page, callback=self.on_tracker_enter)
-            
-            #return self.logout(response)
-#            #Не закончили траверс архива
-#            if self.arch.urls:
-#                return Request(self.domain_name + self.arch.get(), callback=self.on_arch_enter)
-#            #Не закончили траверс списка топиков
-#            if self.topic.urls:
-#                return Request(self.domain_name + self.topic.get(), callback=self.on_topic_enter)
-#            #Данные уже скачаны!!!
-#            return None
         return None
     #--------------------------------------------------------------------------
     def do_login(self, response):
@@ -265,17 +170,19 @@ class LORSpider(Spider):
         #Список разделов
         groups = msgtable.css('a[class="secondary"]::attr(href)').getall()
         for row in msgtable.css('tr'):
+            topic_url = ''
             for l in row.css('a::attr(href)').getall():
                 #
                 l = l.split('?')[0]
                 #
                 if l not in groups:
-                    #TODO: Извлечение url
-                    self.log_print(l)
-            #TODO: Извлечение времени в нормальнов формате
-            mod_tm = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
-            self.log_print(mod_tm)
-            
+                    topic_url = l
+            #
+            mod_time = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
+            self.topic += self.tracker.update(topic_url, mod_time)
+
+        #for t in self.tracker.topic:
+        #    print(t.url)            
     
         for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
             if 'следующие' in ref.css('::text').get():
@@ -283,7 +190,17 @@ class LORSpider(Spider):
                 next_page = ref.css('::attr(href)').get()
                 self.log_print('Will goto:', next_page)
                 return Request(self.domain_name + next_page, 
-                               callback=self.on_tracker_enter)
+                               callback=self.on_tracker_enter,
+                               dont_filter=True)
+        #Пока просто печатаем топики
+        print(self.topic)
+        self.topic = []
+        #Пока так
+        if self.update > 0:
+            self.update -= 1
+            return Request(self.tracker_page, 
+                           callback=self.on_tracker_enter, 
+                           dont_filter=True)
             
         return self.logout(response)
         #Теперь обходим топики
@@ -443,7 +360,7 @@ class LORSpider(Spider):
         """
         Закончили сбор данных, собираемся выходить
         """
-        self.log_print('Will logg out... Deleted messages:', self.deleted_msg)
+        self.log_print('Will logg out...')
         return Request(self.profile_page, callback=self.do_logout)
 ###############################################################################
 if __name__ == '__main__':
