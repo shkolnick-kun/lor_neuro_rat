@@ -172,18 +172,12 @@ class LORSpider(Spider):
         for row in msgtable.css('tr'):
             topic_url = ''
             for l in row.css('a::attr(href)').getall():
-                #
                 l = l.split('?')[0]
-                #
                 if l not in groups:
                     topic_url = l
-            #
             mod_time = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
             self.topic += self.tracker.update(topic_url, mod_time)
-
-        #for t in self.tracker.topic:
-        #    print(t.url)            
-    
+        #    
         for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
             if 'следующие' in ref.css('::text').get():
                 sleep(2)
@@ -193,7 +187,9 @@ class LORSpider(Spider):
                                callback=self.on_tracker_enter,
                                dont_filter=True)
         #Пока просто печатаем топики
-        print(self.topic)
+        self.log_print('----------------------------------')
+        self.log_print(self.topic)
+        self.log_print('----------------------------------')
         self.topic = []
         #Пока так
         if self.update > 0:
