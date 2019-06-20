@@ -22,8 +22,10 @@
 from io import StringIO
 from json import JSONDecoder#, JSONEncoder
 import pickle as pk
-#import re
+import re
 from time import sleep
+
+import pandas as pd
 
 from scrapy.spiders import Spider
 from scrapy.http import Request, FormRequest
@@ -166,6 +168,9 @@ class LORSpider(Spider):
         Парсим страницы трекера, форомируем список URL-ов для топиков
         """
         self.log_print('==================================')
+        #Список топиков на текущей странице трекера
+        page_topic = []
+        #Таблица с топиками/разделами
         msgtable = response.css('table[class="message-table"]').css('tbody')
         #Список разделов
         groups = msgtable.css('a[class="secondary"]::attr(href)').getall()
@@ -174,163 +179,191 @@ class LORSpider(Spider):
             for l in row.css('a::attr(href)').getall():
                 l = l.split('?')[0]
                 if l not in groups:
-                    topic_url = l
+                    url = l.split('/')
+                    if 'page' in url[-1]:
+                        url.remove(url[-1])
+                    topic_url = '/'.join(url)
+                        
+            print(topic_url)
             mod_time = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
-            self.topic += self.tracker.update(topic_url, mod_time)
-        #    
-        for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
-            if 'следующие' in ref.css('::text').get():
-                sleep(2)
-                next_page = ref.css('::attr(href)').get()
-                self.log_print('Will goto:', next_page)
-                return Request(self.domain_name + next_page, 
-                               callback=self.on_tracker_enter,
-                               dont_filter=True)
-        #Пока просто печатаем топики
-        self.log_print('----------------------------------')
-        self.log_print(self.topic)
-        self.log_print('----------------------------------')
-        self.topic = []
+            page_topic += self.tracker.update(topic_url, mod_time)
+        #
+        if page_topic:
+            #Пополняеем список топиков
+            self.topic += page_topic
+            #Переходим к следующей странице трекера 
+            for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
+                if 'следующие' in ref.css('::text').get():
+                    sleep(2)
+                    next_page = ref.css('::attr(href)').get()
+                    self.log_print('Will goto:', next_page)
+                    return Request(self.domain_name + next_page, 
+                                   callback=self.on_tracker_enter,
+                                   dont_filter=True)
         #Пока так
         if self.update > 0:
             self.update -= 1
-            return Request(self.tracker_page, 
-                           callback=self.on_tracker_enter, 
-                           dont_filter=True)
+            if self.topic:
+                #Обходим топики
+                next_topic = self.topic[0]
+                next_url = self.domain_name + next_topic
+                self.log_print('Will goto:', next_url)
+                sleep(4)
+                return Request(next_url, 
+                               callback=self.on_topic_enter, 
+                               dont_filter=True)
             
         return self.logout(response)
-        #Теперь обходим топики
-        #self.log_print('Will visit topics...')
-        #next_url = self.domain_name + self.topic.get()
-        #return Request(next_url, callback=self.on_topic_enter)
-#    #==========================================================================
-#    def get_comments(self, response, out_file):
-#        """
-#        Получение данных из комментариев
-#        """
-#        jse = JSONEncoder()
-#        posts = []
-#        del_count = 0
-#        s = response.css('article[class="msg"]')
-#        for sel in s:
-#            self.log_print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
-#            #Получение id сообщения
-#            msg_id = sel.css('::attr(id)').get()
-#            self.log_print(msg_id)
-#            #У комментариев и удаленных топиков есть title
-#            title = sel.css('div[class="title"]')
-#            title_txt = title.css('::text').getall()
-#            src_lnk = None
-#            del_reason = None
-#            for l in title_txt:
-#                #Извлечение сылки на исходный пост
-#                if not src_lnk:
-#                    if 'Ответ на' in l:
-#                        src_lnk = title.css('a[data-samepage="samePage"]::attr(href)').get()
-#                        self.log_print(src_lnk)
-#                #Извлечение причины удаления
-#                if not del_reason:
-#                    if 'Сообщение удалено' in l:
-#                        del_reason = l
-#                        del_count += 1
-#                        self.log_print(del_reason)
-#            #
-#            blacklist = ['\n']
-#            #
-#            if 'comment' in msg_id:
-#                #Комментарий
-#                #Извлечение сообщения
-#                msg = sel.css('div[class="msg_body message-w-userpic"]')
-#                #Извлечение автора
-#                sign = msg.css('div[class="sign"]')
-#                creator = sign.css('a[itemprop="creator"]::attr(href)').get()
-#                #Извлечение времени
-#                ctime = sign.css('time[itemprop="commentTime"]::attr(datetime)').get()
-#                #Извлечение текстов
-#                txt_lines = msg.css('::text').getall()
-#                #Тут нет отдельного футтера
-#                blacklist += sign.css('::text').getall()
-#                blacklist += sel.css('div[class="reply"]').css('::text').getall()
-#            else:
-#                #Топик
-#                #Извлечение автора
-#                sign = sel.css('div[class="sign"]')
-#                creator = sign.css('a[itemprop="creator"]::attr(href)').get()
-#                #Извлечение времени
-#                ctime = sign.css('time[itemprop="dateCreated"]::attr(datetime)').get()
-#                #Извлечение текстов
-#                txt_lines = sel.css('div[itemprop="articleBody"]').css('::text').getall()
-#            #Выделяем код
-#            code = sel.css('div[class*="code"]').css('::text').getall()
-#            #Убираем код из текстов
-#            blacklist += code
-#            #Выделяем цитаты
-#            quote_lines = sel.css('blockquote').css('::text').getall()
-#            quotes = [l for l in quote_lines if l not in blacklist and l.strip()]
-#            #Запоминаем цитаты с ответами + оригинальный текст
-#            txt = [l for l in txt_lines if l not in blacklist and l.strip()]
-#            #Ананим, лигион!!!
-#            if not creator:
-#                creator = ''
-#            #Оригинальное сообщение
-#            if not src_lnk:
-#                src_lnk = ''
-#            #Не удалено
-#            if not del_reason:
-#                del_reason = ''
-#            #Печатаем вытащенное
-#            self.log_print(creator)
-#            self.log_print(ctime)
-#            self.log_print(txt)
-#            self.log_print(code)
-#            self.log_print(quotes)
-#            #Делаем json
-#            posts.append(jse.encode({'MsgId':msg_id,
-#                                     'Creator':creator,
-#                                     'Time':ctime,
-#                                     'SrcLink':src_lnk,
-#                                     'DelReason':del_reason,
-#                                     'Txt':txt,
-#                                     'Code':code,
-#                                     'Quotes':quotes})
-#                                    +'\n')
-#        #Сохраняем топик
-#        with open(out_file, "w+") as f:
-#            f.writelines(posts)
-#        #Выводим количество удаленных сообщений
-#        return del_count
-#    #--------------------------------------------------------------------------
-#    def get_topic_messages(self, response):
-#        """
-#        Парсим топик, сохраняем сообщения
-#        """
-#        out_file = DATA_BASE_PATH + '/thread' + re.sub(r'/', '_', self.topic.get()) + '.txt'
-#        self.deleted_msg += self.get_comments(response, out_file)
-#        #Этот топик мы уже прошли
-#        self.topic.pop(response.url)
-#        #Обходим все страницы из self.topic
-#        next_topic = self.topic.get()
-#        if next_topic:
-#            next_url = self.domain_name + next_topic
-#            self.log_print('Will goto:', next_url)
-#            sleep(4)
-#            return Request(next_url, callback=self.on_topic_enter)
-#        return self.logout(response)
-#    #--------------------------------------------------------------------------
-#    def on_topic_enter(self, response):
-#        """
-#        Зашли в топик, жмем кнопку "Показать удаленные сообщения"
-#        """
-#        self.log_print('==================================')
-#        self.log_print('Topics left:', len(self.topic.urls), 'of', self.topic_n)
-#        self.log_print('==================================')
-#        form = response.css('form[action="%s"]'%self.topic.urls[0])
-#        token = form.css('input[name="csrf"]::attr(value)').get()
-#        sleep(1)
-#        return FormRequest.from_response(response,
-#                                         formdata={'csrf': token, 'deleted':'1'},
-#                                         callback=self.get_topic_messages,
-#                                         dont_filter=True)
+    #==========================================================================
+    def get_comments(self, response):
+        """
+        Получение данных из комментариев
+        """
+        #jse = JSONEncoder()
+        #posts = []
+        msg_igs = []
+        creators = []
+        create_times = []
+        mod_times = [] #Время модификации
+        src_links = []
+        del_reasons = []
+        texts = []
+        codes = []
+        quotes = []
+        #del_count = 0
+        s = response.css('article[class="msg"]')
+        for sel in s:
+            self.log_print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+            #Получение id сообщения
+            msg_id = sel.css('::attr(id)').get()
+            self.log_print(msg_id)
+            #У комментариев и удаленных топиков есть title
+            title = sel.css('div[class="title"]')
+            title_txt = title.css('::text').getall()
+            src_lnk = None
+            del_reason = None
+            for l in title_txt:
+                #Извлечение сылки на исходный пост
+                if not src_lnk:
+                    if 'Ответ на' in l:
+                        src_lnk = title.css('a[data-samepage="samePage"]::attr(href)').get()
+                        self.log_print(src_lnk)
+                #Извлечение причины удаления
+                if not del_reason:
+                    if 'Сообщение удалено' in l:
+                        #del_reason = l
+                        #del_count += 1
+                        self.log_print(del_reason)
+            #
+            blacklist = ['\n']
+            #
+            if 'comment' in msg_id:
+                #Комментарий
+                #Извлечение сообщения
+                msg = sel.css('div[class="msg_body message-w-userpic"]')
+                #Извлечение автора
+                sign = msg.css('div[class="sign"]')
+                creator = sign.css('a[itemprop="creator"]::attr(href)').get()
+                #Извлечение времени
+                ctime = sign.css('time[itemprop="commentTime"]::attr(datetime)').get()
+                #Извлечение текстов
+                txt_lines = msg.css('::text').getall()
+                #Тут нет отдельного футтера
+                blacklist += sign.css('::text').getall()
+                blacklist += sel.css('div[class="reply"]').css('::text').getall()
+            else:
+                #Топик
+                #Извлечение автора
+                sign = sel.css('div[class="sign"]')
+                creator = sign.css('a[itemprop="creator"]::attr(href)').get()
+                #Извлечение времени
+                ctime = sign.css('time[itemprop="dateCreated"]::attr(datetime)').get()
+                #Извлечение текстов
+                txt_lines = sel.css('div[itemprop="articleBody"]').css('::text').getall()
+            #Выделяем код
+            code = sel.css('div[class*="code"]').css('::text').getall()
+            #Убираем код из текстов
+            blacklist += code
+            #Выделяем цитаты
+            quote_lines = sel.css('blockquote').css('::text').getall()
+            quote = [l for l in quote_lines if l not in blacklist and l.strip()]
+            #Запоминаем цитаты с ответами + оригинальный текст
+            txt = [l for l in txt_lines if l not in blacklist and l.strip()]
+            #Ананим, лигион!!!
+            if not creator:
+                creator = ''
+            #Оригинальное сообщение
+            if not src_lnk:
+                src_lnk = ''
+            #Не удалено
+            if not del_reason:
+                del_reason = ''
+            #Печатаем вытащенное
+            self.log_print(creator)
+            self.log_print(ctime)
+            self.log_print(txt)
+            self.log_print(code)
+            self.log_print(quotes)
+            #Будем делать pandas DataFrame
+            msg_igs.append(msg_id)
+            creators.append(creator)
+            create_times.append(ctime)
+            mod_times.append(ctime)#TODO: Сделать извлечение времен модификации
+            src_links.append(src_lnk)
+            del_reasons.append(del_reason)
+            texts.append(txt)
+            codes.append(code)
+            quotes.append(quote)
+        #Делаем DataFrame
+        return pd.DataFrame({'TopId':[response.url]*len(msg_igs),
+                             'MsgId':msg_igs,
+                             'Creator':creators,
+                             'Time':create_times,
+                             'ModTime':mod_times,
+                             'SrcLink':src_links,
+                             'DelReason':del_reasons,
+                             'Txt':texts,
+                             'Code':codes,
+                             'Quotes':quotes})
+    #--------------------------------------------------------------------------
+    def get_topic_messages(self, response):
+        """
+        Парсим топик, сохраняем сообщения
+        """
+        topic_data = self.get_comments(response)
+        out_file = DATA_BASE_PATH + '/topic' + re.sub(r'/', '_', self.topic[0]) + '.pkl'
+        topic_data.to_pickle(out_file)
+        #Этот топик мы уже прошли
+        self.topic.remove(response.url.split(self.domain_name)[1])
+        #Обходим все страницы из self.topic
+        if self.topic:    
+            next_topic = self.topic[0]
+            next_url = self.domain_name + next_topic
+            self.log_print('Will goto:', next_url)
+            sleep(4)
+            return Request(next_url, 
+                           callback=self.on_topic_enter, 
+                           dont_filter=True)
+        #TODO: Тут сделать анализ данных
+        self.topic = []
+        return Request(self.tracker_page, 
+                       callback=self.on_tracker_enter,
+                       dont_filter=True)
+    #--------------------------------------------------------------------------
+    def on_topic_enter(self, response):
+        """
+        Зашли в топик, жмем кнопку "Показать удаленные сообщения"
+        """
+        self.log_print('==================================')
+        self.log_print('Topics left:', len(self.topic))
+        self.log_print('==================================')
+        form = response.css('form[action="%s"]'%self.topic[0])
+        token = form.css('input[name="csrf"]::attr(value)').get()
+        sleep(1)
+        return FormRequest.from_response(response,
+                                         formdata={'csrf': token, 'deleted':'1'},
+                                         callback=self.get_topic_messages,
+                                         dont_filter=True)
     #==========================================================================
     def on_logout(self, response):
         """
