@@ -154,7 +154,7 @@ def data_prepare(x):
     X['WrdCnt'].hist(bins=100)
     return X
 #=============================================================================
-X = pd.read_pickle('data/Dataset.pkl')
+X = pd.read_pickle('data/Dataset1.pkl')
 X = data_prepare(X)
-X.to_pickle('data/XyWrdTok.pkl')
+X.to_pickle('data/XyWrdTok1.pkl')
 print(X.describe())
