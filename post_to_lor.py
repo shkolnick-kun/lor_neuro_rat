@@ -32,35 +32,14 @@ from scrapy.http import Request, FormRequest
 
 import lorcfg as cfg
 
-DATA_BASE_PATH = 'data'
-###############################################################################
-class LORMessage():
-    def __init__(self, msg_id, mod_time, text):
-        self.msg_id = msg_id
-        self.mod_time = mod_time
-        self.text = text
-        
-    def update(self, mod_time, text):
-        if self.mod_time != mod_time:
-            self.text = text
-            return text
-        return []
+DATA_BASE_PATH = 'data/work'
 ###############################################################################
 class LORTopic():
     def __init__(self, url, mod_time):
         self.url = url
         self.mod_time = mod_time
-        self.msg = []
-        self.msg_id = []
-        
-    def update(self, message):
-        if message.msg_id not in self.msg_id:
-            self.msg_id.append(message.msg_id)
-            self.msg.append(message)
-            return message.text
-        return self.msg[self.msg_id.index(message.msg_id)].update(message.mod_time, message.text)
     
-    def refresh(self, mod_time):
+    def update(self, mod_time):
         if self.mod_time != mod_time:
             self.mod_time = mod_time
             return [self.url]
@@ -75,7 +54,7 @@ class LORTracker():
             self.url.append(topic_url)
             self.topic.append(LORTopic(topic_url, mod_time))
             return [topic_url]
-        return self.topic[self.url.index(topic_url)].refresh(mod_time)
+        return self.topic[self.url.index(topic_url)].update(mod_time)
 ###############################################################################
 class LORSpider(Spider):
     """
@@ -331,6 +310,8 @@ class LORSpider(Spider):
         Парсим топик, сохраняем сообщения
         """
         topic_data = self.get_comments(response)
+        #TODO: Обновление топиков сделать на основе pd.merge
+        #https://pythonfordatascience.org/merge-and-update-pandas-data-frame/
         out_file = DATA_BASE_PATH + '/topic' + re.sub(r'/', '_', self.topic[0]) + '.pkl'
         topic_data.to_pickle(out_file)
         #Этот топик мы уже прошли
