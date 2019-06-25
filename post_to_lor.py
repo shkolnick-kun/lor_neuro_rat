@@ -21,7 +21,8 @@
 """
 from io import StringIO
 from json import JSONDecoder#, JSONEncoder
-import pickle as pk
+import os
+#import pickle as pk
 import re
 from time import sleep
 
@@ -33,6 +34,32 @@ from scrapy.http import Request, FormRequest
 import lorcfg as cfg
 
 DATA_BASE_PATH = 'data/work'
+###############################################################################
+def merge_topic_versions(old, new):
+    merge = pd.merge(old[['MsgId', 'Txt', 'Code', 'Quotes']], new, 
+                     how = 'outer', 
+                     on= 'MsgId', 
+                     suffixes= ('_old', '_new'), 
+                     indicator= False)
+
+    idxs = merge["Txt_old"] != merge["Txt_new"]
+    merge['Txt'] = merge['Txt_new'].where(idxs, merge['Txt_old'])
+    update = idxs
+
+    idxs = merge["Code_old"] != merge["Code_new"]
+    merge['Code'] = merge['Code_new'].where(idxs, merge['Code_old'])
+    update |= idxs
+
+    idxs = merge["Quotes_old"] != merge["Quotes_new"]
+    merge['Quotes'] = merge['Quotes_new'].where(idxs, merge['Quotes_old'])
+    update |= idxs
+
+    drop_list = ['Txt_old', 'Txt_new', 
+                 'Code_old', 'Code_new', 
+                 'Quotes_old', 'Quotes_new'] 
+    merge.drop(drop_list, axis= 1, inplace= True)
+    
+    return merge, merge[update].copy()
 ###############################################################################
 class LORTopic():
     def __init__(self, url, mod_time):
@@ -309,10 +336,18 @@ class LORSpider(Spider):
         """
         Парсим топик, сохраняем сообщения
         """
-        topic_data = self.get_comments(response)
-        #TODO: Обновление топиков сделать на основе pd.merge
-        #https://pythonfordatascience.org/merge-and-update-pandas-data-frame/
+        topic_new = self.get_comments(response)
         out_file = DATA_BASE_PATH + '/topic' + re.sub(r'/', '_', self.topic[0]) + '.pkl'
+        #Обновление топика
+        if os.path.isfile(out_file):
+            topic_old = pd.read_pickle(out_file)
+            topic_old.to_pickle(out_file + '.bak')
+            topic_data, classify_data = merge_topic_versions(topic_old, topic_new)
+            #TODO: Тут сделать анализ данных
+            print(classify_data.head())
+        else:
+            topic_data = topic_new
+        #
         topic_data.to_pickle(out_file)
         #Этот топик мы уже прошли
         self.topic.remove(response.url.split(self.domain_name)[1])
@@ -325,7 +360,7 @@ class LORSpider(Spider):
             return Request(next_url, 
                            callback=self.on_topic_enter, 
                            dont_filter=True)
-        #TODO: Тут сделать анализ данных
+        #Топики кончились, идем обратнов архив
         self.topic = []
         return Request(self.tracker_page, 
                        callback=self.on_tracker_enter,
