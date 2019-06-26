@@ -127,34 +127,42 @@ def text_preprocess(s, no_stem=False):
     words  = [w for w in words if not w in stop_words]
     return words, tokens
 #=============================================================================
-def data_prepare(x):
+def data_prepare(x, verbous=True):
     X = x.copy()
     #Пока так
-    print('Склеиваем строки...')
-    X['Text'] = X['Txt'].apply(lambda x: ' '.join(x))
-    print('Готово\nНормализиция текстов...')
+    if verbous:
+        print('Склеиваем строки...')
+    X['Text'] = X['Txt'].apply(lambda x: ' '.join(x)) 
+    if verbous:
+        print('Готово\nНормализиция текстов...')
 
     X['Words'] = pd.Series([[]]*len(X))
     X['WrdCnt'] = pd.Series([0]*len(X))
     X['Tokens'] = pd.Series([[]]*len(X))
     X['TokCnt'] = pd.Series([0]*len(X))
     
-    pb = ProgressBar(max_value = len(X))
-    pb.start()
+    if verbous:
+        pb = ProgressBar(max_value = len(X))
+        pb.start()
+        
     for i in range(0,len(X)):
-        pb.update(i)
+        if verbous:
+            pb.update(i)
         w,t = text_preprocess(X.loc[i,'Text'])
         X.at[i,'Words'] = w
         X.at[i,'WrdCnt'] = len(w)
         X.at[i,'Tokens'] = t
         X.at[i,'TokCnt'] = len(t)
-    pb.finish()
+    if verbous:
+        pb.finish()
     
-    X['TokCnt'].hist(bins=100)
-    X['WrdCnt'].hist(bins=100)
+    if verbous: 
+        X['TokCnt'].hist(bins=100)
+        X['WrdCnt'].hist(bins=100)
     return X
 #=============================================================================
-X = pd.read_pickle('data/Dataset1.pkl')
-X = data_prepare(X)
-X.to_pickle('data/XyWrdTok1.pkl')
-print(X.describe())
+if __name__ == '__main__':
+    X = pd.read_pickle('data/Dataset1.pkl')
+    X = data_prepare(X)
+    X.to_pickle('data/XyWrdTok1.pkl')
+    print(X.describe())
