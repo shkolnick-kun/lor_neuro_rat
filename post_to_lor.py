@@ -29,6 +29,9 @@ from time import sleep
 #from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
+from keras.backend.tensorflow_backend import set_session
+import tensorflow as tf
+
 import pandas as pd
 
 from scrapy.spiders import Spider
@@ -37,6 +40,11 @@ from scrapy.http import Request, FormRequest
 from clean_text import data_prepare
 
 import lorcfg as cfg
+
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.2
+set_session(tf.Session(config=config))
+
 ###############################################################################
 class LOR_classifier():
     def __init__(self, tokenizer_fname, model_fname, max_len, thr = 0.5, batch_size=512):
@@ -237,7 +245,7 @@ class LORSpider(Spider):
 #            return Request(next_url, 
 #                           callback=self.on_topic_enter, 
 #                           dont_filter=True)
-                
+        sleep(10)
         return self.go_next(response)
     #==========================================================================
     def on_report_form_enter(self, response):
