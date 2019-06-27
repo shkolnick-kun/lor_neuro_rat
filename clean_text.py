@@ -111,9 +111,14 @@ except Exception:
 NUMS = [WFN[r] for r in list(WFN)]
 stop_words = [w for w in stopwords.words('russian') if w not in NUMS]
 
+PLS = ['я','ты','oн','oна','его','вы','ее','её','мне','меня','ему','него','oн',
+       'вас','ваш','вам','себя','ей','oни','ней','мы','тебя','себе','этот',
+       'того','этого','ним','этом','мой','нее','неё','тот','эту','моя','свою',
+       'этой','том','им']
+stop_words = [w for w in stop_words if w not in PLS]
 
 morph = pymorphy2.MorphAnalyzer()
-def text_preprocess(s, no_stem=False):
+def text_preprocess(s):
     global stop_words
     s = text_clean(str(s))
     words = s.lower().split()
@@ -162,7 +167,7 @@ def data_prepare(x, verbous=True):
     return X
 #=============================================================================
 if __name__ == '__main__':
-    X = pd.read_pickle('data/Dataset1.pkl')
+    X = pd.read_pickle('data/Dataset1b.pkl')
     X = data_prepare(X)
-    X.to_pickle('data/XyWrdTok1.pkl')
+    X.to_pickle('data/XyWrdTok1b.pkl')
     print(X.describe())

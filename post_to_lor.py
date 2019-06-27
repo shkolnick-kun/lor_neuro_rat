@@ -120,7 +120,7 @@ class LORSpider(Spider):
     1. Научиться обходит "автобаны" с помощью списков проксей.
     Списко проксей можно формировать отдельным скриптом.
     """
-    name = 'GetLOR'
+    name = 'NeuroRat'
     domain_name = 'https://www.linux.org.ru'
     tracker_page = domain_name + '/tracker/?filter=all'
     profile_page = domain_name + '/people/' + cfg.LOGIN + '/profile'
@@ -134,6 +134,8 @@ class LORSpider(Spider):
                                 cfg.BATCH_SIZE)
     suspicious = []
     susp_len = 0
+    susp_num = 0
+    msg_num = 0
     #
     tracker = LORTracker()
     topic = []
@@ -198,6 +200,7 @@ class LORSpider(Spider):
                            dont_filter=True)
         #Топики кончились, идем обратнов архив
         self.topic = []
+        sleep(4)
         return Request(self.tracker_page, 
                        callback=self.on_tracker_enter,
                        dont_filter=True)
@@ -238,7 +241,7 @@ class LORSpider(Spider):
             #Переходим к следующей странице трекера 
             for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
                 if 'следующие' in ref.css('::text').get():
-                    sleep(2)
+                    sleep(4)
                     next_page = ref.css('::attr(href)').get()
                     self.log_print('Will goto:', next_page)
                     return Request(self.domain_name + next_page, 
@@ -267,11 +270,13 @@ class LORSpider(Spider):
             top_ids = list(susp['TopId'])
             cls_prob = list(susp['BinProb'])
             #
-            report = 'Подозрительные сообщения:\n'
+            report = 'Проверено: %d, Подозрительных: %d\n\n'%(self.msg_num, self.susp_num)
+            report += 'Подозрительные сообщения:\n'
             for i, msg in enumerate(msg_ids):
                 url = top_ids[i] + '?cid=' + msg
                 report += ' * ' + url + ' (p=%f)\n'%cls_prob[i]
             #Отправляем отчет
+            sleep(4)
             token = form.css('input[name="csrf"]::attr(value)').get()
             topic = form.css('input[name="topic"]::attr(value)').get()
             replyto = form.css('input[name="replyto"]::attr(value)').get()
@@ -284,7 +289,6 @@ class LORSpider(Spider):
                     'title':'Нейроябеда',
                     'msg':report
                     }
-            
             return FormRequest.from_response(response,
                                          formdata=data,
                                          callback=self.go_next,
@@ -428,15 +432,19 @@ class LORSpider(Spider):
             classify_data = classify_data[sel].copy()
             classify_data.reset_index(inplace=True, drop=True)#Всегда делать так
             sel = None
-            #
+            #Инкремент счетчика проверенных сообщений
+            self.msg_num += len(classify_data)
+            #Слассификация данных
             self.log_print(classify_data.head())
             cls_res = self.classifier.find_suspicious(classify_data)
             #
             if len(cls_res) > 0:
                 self.suspicious.append(cls_res)
                 self.susp_len += len(cls_res)
+                self.susp_num += len(cls_res)
                 #
                 if self.susp_len > 40:
+                    sleep(4)
                     return Request(self.report_page, 
                                    callback=self.on_report_form_enter,
                                    dont_filter=True)
