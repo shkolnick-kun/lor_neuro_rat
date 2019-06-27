@@ -56,12 +56,13 @@ class LOR_classifier():
         self.thr = thr
     
     def find_suspicious(self, X):
-        print(X.head())
+        #print(X.head())
         X = data_prepare(X, verbous=False).copy()
         X_str = [' '.join(tokens) for tokens in list(X['Tokens'])]
         X_seq = self.tokenizer.texts_to_sequences(X_str)
         X_seq = pad_sequences(X_seq, maxlen=self.maxlen)
         y = self.classifier.predict(X_seq, verbose=0, batch_size=self.batch_size)
+        X['BinProb'] = y
         return X[y > self.thr].copy()
 ###############################################################################
 def merge_topic_versions(old, new):
@@ -121,17 +122,19 @@ class LORSpider(Spider):
     """
     name = 'GetLOR'
     domain_name = 'https://www.linux.org.ru'
-    tracker_page = domain_name + '/tracker/'
+    tracker_page = domain_name + '/tracker/?filter=all'
     profile_page = domain_name + '/people/' + cfg.LOGIN + '/profile'
+    report_page = domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO
     start_urls = [domain_name + '/login.jsp']
-    
+    #
     classifier = LOR_classifier(cfg.TOKENIZER, 
                                 cfg.CLASSFIER, 
                                 cfg.MAX_LEN, 
                                 cfg.THR, 
                                 cfg.BATCH_SIZE)
-    suspicious = ''
-    
+    suspicious = []
+    susp_len = 0
+    #
     tracker = LORTracker()
     topic = []
     update = 10
@@ -204,6 +207,11 @@ class LORSpider(Spider):
         Парсим страницы трекера, форомируем список URL-ов для топиков
         """
         self.log_print('==================================')
+        if self.susp_len > 0:
+            #Постим сообщение
+            return Request(self.report_page, 
+                           callback=self.on_report_form_enter,
+                           dont_filter=True)
         #Список топиков на текущей странице трекера
         page_topic = []
         #Таблица с топиками/разделами
@@ -220,7 +228,7 @@ class LORSpider(Spider):
                         url.remove(url[-1])
                     topic_url = '/'.join(url)
                         
-            print(topic_url)
+            self.log_print(topic_url)
             mod_time = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
             page_topic += self.tracker.update(topic_url, mod_time)
         #
@@ -236,24 +244,34 @@ class LORSpider(Spider):
                     return Request(self.domain_name + next_page, 
                                    callback=self.on_tracker_enter,
                                    dont_filter=True)
-#        if self.topic:
-#            #Обходим топики
-#            next_topic = self.topic[0]
-#            next_url = self.domain_name + next_topic
-#            self.log_print('Will goto:', next_url)
-#            sleep(4)
-#            return Request(next_url, 
-#                           callback=self.on_topic_enter, 
-#                           dont_filter=True)
+        #
         sleep(10)
         return self.go_next(response)
     #==========================================================================
     def on_report_form_enter(self, response):
         form = response.css('form[action="/add_comment.jsp"]')
         if form:
+            #Формируем отчет
+            susp = pd.concat(self.suspicious, ignore_index=True, copy=True, sort=False)
+            self.suspicious = []
+            self.susp_len = 0
+            #
             self.log_print('+++++++++++++++++++++++++++++++++++')
-            self.log_print(self.suspicious)
+            self.log_print(list(susp['MsgId']))
             self.log_print('+++++++++++++++++++++++++++++++++++')
+            #
+            susp.sort_values(by=['BinProb'], inplace=True, ascending=False)
+            susp.reset_index(inplace=True, drop=True)
+            #
+            msg_ids = [mid.split('-')[1] for mid in susp['MsgId']]
+            top_ids = list(susp['TopId'])
+            cls_prob = list(susp['BinProb'])
+            #
+            report = 'Подозрительные сообщения:\n'
+            for i, msg in enumerate(msg_ids):
+                url = top_ids[i] + '?cid=' + msg
+                report += ' * ' + url + ' (p=%f)\n'%cls_prob[i]
+            #Отправляем отчет
             token = form.css('input[name="csrf"]::attr(value)').get()
             topic = form.css('input[name="topic"]::attr(value)').get()
             replyto = form.css('input[name="replyto"]::attr(value)').get()
@@ -264,9 +282,9 @@ class LORSpider(Spider):
                     'replyto': replyto,
                     'mode':'markdown',
                     'title':'Нейроябеда',
-                    'msg':'Подозрительные сообщения:\n' + self.suspicious
+                    'msg':report
                     }
-            self.suspicious = ''
+            
             return FormRequest.from_response(response,
                                          formdata=data,
                                          callback=self.go_next,
@@ -408,23 +426,21 @@ class LORSpider(Spider):
             #TODO: Пока так, дальше посмотрим
             sel = classify_data['MsgId'].apply(lambda x: 'topic-' not in x)
             classify_data = classify_data[sel].copy()
-            classify_data.reset_index(inplace=True, drop=True)
+            classify_data.reset_index(inplace=True, drop=True)#Всегда делать так
             sel = None
-
+            #
+            self.log_print(classify_data.head())
             cls_res = self.classifier.find_suspicious(classify_data)
+            #
             if len(cls_res) > 0:
-                msg_ids = [mid.split('-')[1] for mid in cls_res['MsgId']]
-                top_ids = list(cls_res['TopId'])
+                self.suspicious.append(cls_res)
+                self.susp_len += len(cls_res)
                 #
-                self.suspicious = ''
-                for i, msg in enumerate(msg_ids):
-                    url = top_ids[i] + '?cid=' + msg
-                    self.suspicious += ' * ' + url   
-                    #Постим сообщение
-                    return Request(self.domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO, 
-                           callback=self.on_report_form_enter,
-                           dont_filter=True)
-        
+                if self.susp_len > 40:
+                    return Request(self.report_page, 
+                                   callback=self.on_report_form_enter,
+                                   dont_filter=True)
+        #
         return self.go_next(response)
     #--------------------------------------------------------------------------
     def on_topic_enter(self, response):
@@ -453,7 +469,7 @@ class LORSpider(Spider):
         """
         Закончили сбор данных, выходим
         """
-        print(response)
+        self.log_print(response)
         self.log_print('Logging out...')
         form = response.css('form[action="logout"]')
         token = form.css('input[name="csrf"]::attr(value)').get()
