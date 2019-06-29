@@ -46,11 +46,21 @@ config.gpu_options.per_process_gpu_memory_fraction = 0.2
 set_session(tf.Session(config=config))
 
 ###############################################################################
-class LOR_classifier():
-    def __init__(self, tokenizer_fname, model_fname, max_len, thr = 0.5, batch_size=512):
+class LOR_models():
+    def __init__(self, tokenizer_fname, model_fname, 
+                 cat_tokenizer_fname, cat_model_fname, cat_list_fname,
+                 max_len, thr = 0.5, batch_size=512):
+        #Бинарный классификатор
         with open(tokenizer_fname, 'rb') as f:
             self.tokenizer = pk.load(f)
         self.classifier = load_model(model_fname)
+        #Модель категоризации
+        with open(cat_tokenizer_fname, 'rb') as f:
+            self.cat_tokenizer = pk.load(f)
+        self.cat_classifier = load_model(cat_model_fname)
+        with open(cat_list_fname, 'rb') as f:
+            self.cat_list = pk.load(f)
+        #Прочие параметры
         self.maxlen = max_len
         self.batch_size = batch_size
         self.thr = thr
@@ -64,6 +74,34 @@ class LOR_classifier():
         y = self.classifier.predict(X_seq, verbose=0, batch_size=self.batch_size)
         X['BinProb'] = y
         return X[y > self.thr].copy()
+    
+    def get_top3(self, x):
+        x = list(x)
+        #
+        def argmax(l):
+            return max(enumerate(l), key=lambda x: x[1])[0]
+        #
+        top3 = ''
+        for i in range(3):
+            c = argmax(x)
+            top3 += ' **' + str(self.cat_list[c]) + '**(%.2f)'%x[c]
+            x[c] = 0
+        return top3
+    
+    def cat_suspicious(self, X):
+        #print(X.head())
+        X = data_prepare(X, verbous=False).copy()
+        X_str = [' '.join(tokens) for tokens in list(X['Tokens'])]
+        X_seq = self.cat_tokenizer.texts_to_sequences(X_str)
+        X_seq = pad_sequences(X_seq, maxlen=self.maxlen)
+        y = self.cat_classifier.predict(X_seq, verbose=0, batch_size=self.batch_size)
+        X['CatRes'] = pd.Series(['']*len(X))
+        for i in range(len(X)):
+            X.at[i, 'CatRes'] = self.get_top3(y[i])
+        return X
+    
+
+            
 ###############################################################################
 def merge_topic_versions(old, new):
     merge = pd.merge(old[['MsgId', 'Txt', 'Code', 'Quotes']], new, 
@@ -127,11 +165,14 @@ class LORSpider(Spider):
     report_page = domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO
     start_urls = [domain_name + '/login.jsp']
     #
-    classifier = LOR_classifier(cfg.TOKENIZER, 
-                                cfg.CLASSFIER, 
-                                cfg.MAX_LEN, 
-                                cfg.THR, 
-                                cfg.BATCH_SIZE)
+    classifier = LOR_models(cfg.TOKENIZER, 
+                            cfg.CLASSFIER,
+                            cfg.CAT_TOKENIZER, 
+                            cfg.CAT_CLASSIFIER,
+                            cfg.CAT_LIST, 
+                            cfg.MAX_LEN, 
+                            cfg.THR, 
+                            cfg.BATCH_SIZE)
     suspicious = []
     susp_len = 0
     susp_num = 0
@@ -264,6 +305,8 @@ class LORSpider(Spider):
             susp = pd.concat(self.suspicious, ignore_index=True, copy=True, sort=False)
             self.suspicious = []
             self.susp_len = 0
+            #Делаем категоризацию постов
+            susp = self.classifier.cat_suspicious(susp)
             #
             self.log_print('+++++++++++++++++++++++++++++++++++')
             self.log_print(list(susp['MsgId']))
@@ -275,12 +318,14 @@ class LORSpider(Spider):
             msg_ids = list(susp['MsgId'])
             top_ids = list(susp['TopId'])
             cls_prob = list(susp['BinProb'])
+            cat_prob = list(susp['CatRes'])
             #
             for i, msg in enumerate(msg_ids):
                 url = top_ids[i]
                 if 'topic' not in msg:
                     url += '?cid=' + msg.split('-')[1]
-                self.report.append(' * ' + url + ' (p=%f)\n'%cls_prob[i])
+                r = ' * ' + url + ' (p=%.2f)'%cls_prob[i] + cat_prob[i] + '\n'
+                self.report.append(r)
         
         form = response.css('form[action="/add_comment.jsp"]')
         if form:
