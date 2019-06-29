@@ -9,6 +9,7 @@ Created on Sat Jun  1 23:09:01 2019
 #import os
 import pandas as pd
 import pickle as pk
+from progressbar.bar import ProgressBar
 
 data = []
 with open('data/all_data.pkl', 'rb') as f:
@@ -26,7 +27,9 @@ texts = []
 codes = []
 quotes = []
 
-for rec in data:
+pb = ProgressBar(max_value = len(data))
+pb.start()
+for i, rec in enumerate(data):
     msg_ids.append(rec['MsgId'])
     creators.append(rec['Creator'])
     timestamps.append(rec['Time'])
@@ -35,7 +38,12 @@ for rec in data:
     texts.append(rec['Txt'])
     codes.append(rec['Code'])
     quotes.append(rec['Quotes'])
+    pb.update(i)
+pb.finish()
 
+data = None
+
+print('Создаю DataFrame...')
 df = pd.DataFrame({'TopId':tid,
                    'MsgId':msg_ids,
                    'Creator':creators,
@@ -46,4 +54,5 @@ df = pd.DataFrame({'TopId':tid,
                    'Code':codes,
                    'Quotes':quotes})
 
+print('Сохраняю DataFrame...')
 df.to_pickle('data/all_data_as_dataframe.pkl')

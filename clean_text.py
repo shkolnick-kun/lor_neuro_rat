@@ -167,7 +167,19 @@ def data_prepare(x, verbous=True):
     return X
 #=============================================================================
 if __name__ == '__main__':
-    X = pd.read_pickle('data/Dataset1b.pkl')
+    X = pd.read_pickle('data/Dataset1с.pkl')
     X = data_prepare(X)
-    X.to_pickle('data/XyWrdTok1b.pkl')
+    X.to_pickle('data/XyWrdTok1с.pkl')
+    print(X.describe())
+    X = pd.read_pickle('data/Dataset2с.pkl')
+    X = data_prepare(X)
+    X.to_pickle('data/XyWrdTok2с.pkl')
+    print(X.describe())
+    X = pd.read_pickle('data/Dataset5с.pkl')
+    X = data_prepare(X)
+    X.to_pickle('data/XyWrdTok5с.pkl')
+    print(X.describe())
+    X = pd.read_pickle('data/Dataset10с.pkl')
+    X = data_prepare(X)
+    X.to_pickle('data/XyWrdTok10с.pkl')
     print(X.describe())

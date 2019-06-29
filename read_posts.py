@@ -22,10 +22,11 @@
 from json import JSONDecoder
 import os
 import pickle as pk
-import pandas as pd
+#import pandas as pd
 import re
+from progressbar.bar import ProgressBar
 
-from lorcfg import *
+#from lorcfg import *
 
 jsd = JSONDecoder()
 rec = []
@@ -35,7 +36,10 @@ code = 0
 quotes = 0
 N = 0
 
-for name in os.listdir('data/download'):
+drl = os.listdir('data/download')
+pb = ProgressBar(max_value = len(drl))
+pb.start()
+for i, name in enumerate(drl):
     bname, ext = name.split('.')
     if 'txt' == ext:
         with open('data/download/'+name, 'r') as f:
@@ -52,14 +56,14 @@ for name in os.listdir('data/download'):
                 if rec[-1]['Code']:
                     code += 1
                     
-                if rec[-1]['Quotes']:
-                    quotes += 1
-                    print('=======================================')
-                    print(rec[-1]['Txt'])
-                    print(rec[-1]['Quotes'])
+#                if rec[-1]['Quotes']:
+#                    quotes += 1
+#                    print('=======================================')
+#                    print(rec[-1]['Txt'])
+#                    print(rec[-1]['Quotes'])
+                pb.update(i)
+pb.finish()
                 
-    
-    
 print(N, deleted, code, quotes)
         
 with open('data/all_data.pkl', 'wb+') as f:
