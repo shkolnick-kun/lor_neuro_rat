@@ -207,9 +207,6 @@ class LORSpider(Spider):
         res = jsd.decode(response.body_as_unicode())
         if res['username'] == cfg.LOGIN and res['loggedIn']:
             self.log_print('Logged in... Will do the job...')
-            #Постим сообщение
-            #return Request(self.domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO, 
-            #               callback=self.on_report_form_enter)
             self.topic = []
             return Request(self.tracker_page, callback=self.on_tracker_enter)
         return None
@@ -231,9 +228,9 @@ class LORSpider(Spider):
                                          dont_filter=True)
     #==========================================================================
     def go_next(self, response):
+        sleep(4)
         if self.report:
             #Постим сообщение
-            sleep(4)
             return Request(self.report_page, 
                            callback=self.on_report_form_enter,
                            dont_filter=True)
@@ -242,13 +239,14 @@ class LORSpider(Spider):
             next_topic = self.topic[0]
             next_url = self.domain_name + next_topic
             self.log_print('Will goto:', next_url)
-            sleep(4)
             return Request(next_url, 
                            callback=self.on_topic_enter, 
                            dont_filter=True)
-        #Топики кончились, идем обратнов архив
-        self.topic = []
-        sleep(4)
+        #Топики кончились, идем...
+        if cfg.ONE_SHOT:
+            #На выход
+            return self.logout(response)
+        #Или опять в трекер
         return Request(self.tracker_page, 
                        callback=self.on_tracker_enter,
                        dont_filter=True)

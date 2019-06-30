@@ -8,6 +8,7 @@ Created on Sat May 25 23:44:39 2019
 LOGIN  = 'user'
 PASS = 'pass'
 REPORT_TO = '15041564'
+ONE_SHOT = False
 
 OUT_FILE = 'log.txt'
 
