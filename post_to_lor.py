@@ -26,12 +26,11 @@ import pickle as pk
 import re
 from time import sleep
 
-#from keras.preprocessing.text import Tokenizer
+import numpy as np
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
 from keras.backend.tensorflow_backend import set_session
 import tensorflow as tf
-
 import pandas as pd
 
 from scrapy.spiders import Spider
@@ -41,74 +40,100 @@ from clean_text import data_prepare
 
 import lorcfg as cfg
 
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.2
-set_session(tf.Session(config=config))
-
+TF_CONFIG = tf.ConfigProto()
+TF_CONFIG.gpu_options.per_process_gpu_memory_fraction = 0.2
+set_session(tf.Session(config=TF_CONFIG))
 ###############################################################################
-class LOR_models():
-    def __init__(self, tokenizer_fname, model_fname, 
-                 cat_tokenizer_fname, cat_model_fname, cat_list_fname,
-                 max_len, thr = 0.5, batch_size=512):
-        #Бинарный классификатор
+class LORTxtModel():
+    """
+    Обертка над моделью keras
+    """
+    def __init__(self, tokenizer_fname, model_fname):
+        """
+        tokenizer_fname - имя файла токенизатора
+        model_fname - имя файла модели
+        """
+        #Токенизатор
         with open(tokenizer_fname, 'rb') as f:
-            self.tokenizer = pk.load(f)
-        self.classifier = load_model(model_fname)
-        #Модель категоризации
-        with open(cat_tokenizer_fname, 'rb') as f:
-            self.cat_tokenizer = pk.load(f)
-        self.cat_classifier = load_model(cat_model_fname)
-        with open(cat_list_fname, 'rb') as f:
-            self.cat_list = pk.load(f)
-        #Прочие параметры
-        self.maxlen = max_len
-        self.batch_size = batch_size
-        self.thr = thr
-    
-    def find_suspicious(self, X):
-        #print(X.head())
+            self.tok = pk.load(f)
+        #Модель
+        self.mdl = load_model(model_fname)
+    #--------------------------------------------------------------------------
+    def predict(self, X):
+        """
+        X - датафрейм с тектами
+        Возвращает результаты работы модели с текстами из X
+        """
         X = data_prepare(X, verbous=False).copy()
         X_str = [' '.join(tokens) for tokens in list(X['Tokens'])]
-        X_seq = self.tokenizer.texts_to_sequences(X_str)
-        X_seq = pad_sequences(X_seq, maxlen=self.maxlen)
-        y = self.classifier.predict(X_seq, verbose=0, batch_size=self.batch_size)
+        X_seq = self.tok.texts_to_sequences(X_str)
+        X_seq = pad_sequences(X_seq, maxlen=cfg.MAX_LEN)
+        return self.mdl.predict(X_seq, verbose=0, batch_size=cfg.BATCH_SIZE)
+#==============================================================================
+class LORModels():
+    """
+    Обертка над всеми моделями LOR + утилиты
+    """
+    def __init__(self):
+        #Бинарный классификатор
+        self.bin_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER)
+        #Модель категоризации
+        self.cat_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER)
+        with open(cfg.CAT_LIST, 'rb') as f:
+            self.cat_list = pk.load(f)
+    #--------------------------------------------------------------------------
+    def find_suspicious(self, X):
+        """
+        Поиск подозрителдьных постов
+        Принимает - датафрейм с постами
+        Выдает - датафрейм с подозрительными постами (если их нет - пустой датафрейм)
+        """
+        y = self.bin_cls.predict(X)
         X['BinProb'] = y
-        return X[y > self.thr].copy()
-    
+        return X[y > cfg.BIN_THR].copy()
+    #--------------------------------------------------------------------------
     def get_top3(self, x):
-        x = list(x)
-        #
-        def argmax(l):
-            return max(enumerate(l), key=lambda x: x[1])[0]
-        #
+        """
+        Сформировать часть отчета с категориями подозрительных постов.
+
+        Принимает результат работы категориального классификатора.
+        Выдает строку с топ-3 категорий.
+        """
         top3 = ''
         for i in range(3):
-            c = argmax(x)
+            c = np.argmax(x)
             top3 += ' **' + str(self.cat_list[c]) + '**(%.2f)'%x[c]
             x[c] = 0
         return top3
-    
+    #--------------------------------------------------------------------------
     def cat_suspicious(self, X):
-        #print(X.head())
-        X = data_prepare(X, verbous=False).copy()
-        X_str = [' '.join(tokens) for tokens in list(X['Tokens'])]
-        X_seq = self.cat_tokenizer.texts_to_sequences(X_str)
-        X_seq = pad_sequences(X_seq, maxlen=self.maxlen)
-        y = self.cat_classifier.predict(X_seq, verbose=0, batch_size=self.batch_size)
+        """
+        Категоризация подозрительных постов
+
+        Принимает датафрейм с подозрительными постами
+        Возвращает его же с добавленным столбцом с топ-3 категорий.
+        """
+        y = self.cat_cls.predict(X)
         X['CatRes'] = pd.Series(['']*len(X))
         for i in range(len(X)):
             X.at[i, 'CatRes'] = self.get_top3(y[i])
         return X
-    
-
-            
 ###############################################################################
 def merge_topic_versions(old, new):
-    merge = pd.merge(old[['MsgId', 'Txt', 'Code', 'Quotes']], new, 
-                     how = 'outer', 
-                     on= 'MsgId', 
-                     suffixes= ('_old', '_new'), 
-                     indicator= False)
+    """
+    Слияние старогй и новой версии сообщений топика
+    Принимает:
+        old - сарая версия топика (датафрейм)
+        new - новая версия топика (датафрейм)
+    Возвращает:
+        результат слияния (датафрейм)
+        обновленные/новые посты (датафрейм)
+    """
+    merge = pd.merge(old[['MsgId', 'Txt', 'Code', 'Quotes']], new,
+                     how='outer',
+                     on='MsgId',
+                     suffixes=('_old', '_new'),
+                     indicator=False)
 
     idxs = merge["Txt_old"] != merge["Txt_new"]
     merge['Txt'] = merge['Txt_new'].where(idxs, merge['Txt_old'])
@@ -122,29 +147,52 @@ def merge_topic_versions(old, new):
     merge['Quotes'] = merge['Quotes_new'].where(idxs, merge['Quotes_old'])
     update |= idxs
 
-    drop_list = ['Txt_old', 'Txt_new', 
-                 'Code_old', 'Code_new', 
-                 'Quotes_old', 'Quotes_new'] 
-    merge.drop(drop_list, axis= 1, inplace= True)
-    
+    drop_list = ['Txt_old', 'Txt_new',
+                 'Code_old', 'Code_new',
+                 'Quotes_old', 'Quotes_new']
+    merge.drop(drop_list, axis=1, inplace=True)
+
     return merge, merge[update].copy()
 ###############################################################################
 class LORTopic():
+    """
+    Описание топика при его обновлении
+    """
     def __init__(self, url, mod_time):
         self.url = url
         self.mod_time = mod_time
-    
+    #--------------------------------------------------------------------------
     def update(self, mod_time):
+        """
+        Обновление информации о топике
+        Принимает:
+            время модификации
+        Возвращает:
+            список с URL топика, если топик был модифицирован,
+            либо пустой список
+        """
         if self.mod_time != mod_time:
             self.mod_time = mod_time
             return [self.url]
         return []
 ###############################################################################
 class LORTracker():
+    """
+    Трекер - нужен для отслеживания изменений в трекере LOR.
+    """
     topic = []
     url = []
-    
+    #--------------------------------------------------------------------------
     def update(self, topic_url, mod_time):
+        """
+        Обновить информацию о топике
+        Принимает:
+            topic_url - URL топика
+            mod_time - Время модификации топика
+        Возвращает:
+            список с URL топика, если топик был модифицирован/новый,
+            либо пустой список
+        """
         if topic_url not in self.url:
             self.url.append(topic_url)
             self.topic.append(LORTopic(topic_url, mod_time))
@@ -165,14 +213,8 @@ class LORSpider(Spider):
     report_page = domain_name + '/add_comment.jsp?topic=%s'%cfg.REPORT_TO
     start_urls = [domain_name + '/login.jsp']
     #
-    classifier = LOR_models(cfg.TOKENIZER, 
-                            cfg.CLASSFIER,
-                            cfg.CAT_TOKENIZER, 
-                            cfg.CAT_CLASSIFIER,
-                            cfg.CAT_LIST, 
-                            cfg.MAX_LEN, 
-                            cfg.THR, 
-                            cfg.BATCH_SIZE)
+    mdls = LORModels()
+    #
     suspicious = []
     susp_len = 0
     susp_num = 0
@@ -188,7 +230,7 @@ class LORSpider(Spider):
     #==========================================================================
     def log_print(self, *_objects, _sep=' ', _end=' '):
         """
-        Print to log, using print function and StringIO
+        Печать в лог с помощью print и StringIO
         """
         pf = StringIO()
         print(*_objects, sep=_sep, end=_end, file=pf, flush=True)
@@ -197,12 +239,15 @@ class LORSpider(Spider):
     #==========================================================================
     def parse(self, response):
         """
-        Entry point of crawler FSM
+        Точка входа в конечный автомат
         """
         self.log_print('Will logg in...')
         return self.do_login(response)
     #==========================================================================
     def on_login(self, response):
+        """
+        После удачного входа на сайт - переходим к трекеру
+        """
         jsd = JSONDecoder()
         res = jsd.decode(response.body_as_unicode())
         if res['username'] == cfg.LOGIN and res['loggedIn']:
@@ -216,38 +261,38 @@ class LORSpider(Spider):
         Логика, отвечающая за логин
         """
         token = response.css('input[name="csrf"]::attr(value)').get()
-
-        login_data = {
-                'csrf': token,
-                'nick': cfg.LOGIN,
-                'passwd': cfg.PASS
-                }
+        login_data = {'csrf': token,
+                      'nick': cfg.LOGIN,
+                      'passwd': cfg.PASS}
         return FormRequest.from_response(response,
                                          formdata=login_data,
                                          callback=self.on_login,
                                          dont_filter=True)
     #==========================================================================
     def go_next(self, response):
+        """
+        Логика переходов между состояниями
+        """
         sleep(4)
         if self.report:
             #Постим сообщение
-            return Request(self.report_page, 
+            return Request(self.report_page,
                            callback=self.on_report_form_enter,
                            dont_filter=True)
         #Обходим все страницы из self.topic
-        if self.topic:    
+        if self.topic:
             next_topic = self.topic[0]
             next_url = self.domain_name + next_topic
             self.log_print('Will goto:', next_url)
-            return Request(next_url, 
-                           callback=self.on_topic_enter, 
+            return Request(next_url,
+                           callback=self.on_topic_enter,
                            dont_filter=True)
         #Топики кончились, идем...
         if cfg.ONE_SHOT:
             #На выход
             return self.logout(response)
         #Или опять в трекер
-        return Request(self.tracker_page, 
+        return Request(self.tracker_page,
                        callback=self.on_tracker_enter,
                        dont_filter=True)
     #==========================================================================
@@ -258,7 +303,7 @@ class LORSpider(Spider):
         self.log_print('==================================')
         if self.susp_len > 0:
             #Постим сообщение
-            return Request(self.report_page, 
+            return Request(self.report_page,
                            callback=self.on_report_form_enter,
                            dont_filter=True)
         #Список топиков на текущей странице трекера
@@ -276,7 +321,7 @@ class LORSpider(Spider):
                     if 'page' in url[-1]:
                         url.remove(url[-1])
                     topic_url = '/'.join(url)
-                        
+            #Обновление информации трекера
             self.log_print(topic_url)
             mod_time = row.css('td[class="dateinterval"]').css('time::attr(datetime)').get()
             page_topic += self.tracker.update(topic_url, mod_time)
@@ -284,27 +329,31 @@ class LORSpider(Spider):
         if page_topic:
             #Пополняеем список топиков
             self.topic += page_topic
-            #Переходим к следующей странице трекера 
+            #Переходим к следующей странице трекера
             for ref in response.css('div[class="nav"]').css('a[href*="?offset="]'):
                 if 'следующие' in ref.css('::text').get():
                     sleep(4)
                     next_page = ref.css('::attr(href)').get()
                     self.log_print('Will goto:', next_page)
-                    return Request(self.domain_name + next_page, 
+                    return Request(self.domain_name + next_page,
                                    callback=self.on_tracker_enter,
                                    dont_filter=True)
-        #
-        sleep(10)
+        #Переход дальше
+        sleep(6)
         return self.go_next(response)
     #==========================================================================
     def on_report_form_enter(self, response):
+        """
+        Формирование и отправка отчета.
+        Если отчет получается длинный - отправляем кусками по 40- ссылок.
+        """
         if self.suspicious:
             #Формируем отчет
             susp = pd.concat(self.suspicious, ignore_index=True, copy=True, sort=False)
             self.suspicious = []
             self.susp_len = 0
             #Делаем категоризацию постов
-            susp = self.classifier.cat_suspicious(susp)
+            susp = self.mdls.cat_suspicious(susp)
             #
             self.log_print('+++++++++++++++++++++++++++++++++++')
             self.log_print(list(susp['MsgId']))
@@ -324,14 +373,13 @@ class LORSpider(Spider):
                     url += '?cid=' + msg.split('-')[1]
                 r = ' * ' + url + ' (p=%.2f)'%cls_prob[i] + cat_prob[i] + '\n'
                 self.report.append(r)
-        
+        #Отправка отчета кусками
         form = response.css('form[action="/add_comment.jsp"]')
         if form:
-            
             self.log_print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
             self.log_print(len(self.report))
             self.log_print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
-            
+            #
             report = 'Проверено: %d, Подозрительных: %d\n\n'%(self.msg_num, self.susp_num)
             report += 'Подозрительные сообщения:\n'
             for i in range(min(40, len(self.report))):
@@ -341,19 +389,17 @@ class LORSpider(Spider):
             token = form.css('input[name="csrf"]::attr(value)').get()
             topic = form.css('input[name="topic"]::attr(value)').get()
             replyto = form.css('input[name="replyto"]::attr(value)').get()
-            self.log_print(token,topic,replyto)
-            data = {
-                    'csrf': token,
+            self.log_print(token, topic, replyto)
+            data = {'csrf': token,
                     'topic': topic,
                     'replyto': replyto,
                     'mode':'markdown',
                     'title':'Нейроябеда',
-                    'msg':report
-                    }
+                    'msg':report}
             return FormRequest.from_response(response,
-                                         formdata=data,
-                                         callback=self.go_next,
-                                         dont_filter=True)
+                                             formdata=data,
+                                             callback=self.go_next,
+                                             dont_filter=True)
         #
         self.log_print('Не удалось запостить!!!')
         return self.logout(response)
@@ -362,8 +408,6 @@ class LORSpider(Spider):
         """
         Получение данных из комментариев
         """
-        #jse = JSONEncoder()
-        #posts = []
         msg_igs = []
         creators = []
         create_times = []
@@ -373,7 +417,7 @@ class LORSpider(Spider):
         texts = []
         codes = []
         quotes = []
-        #del_count = 0
+        #
         s = response.css('article[class="msg"]')
         for sel in s:
             self.log_print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
@@ -489,28 +533,25 @@ class LORSpider(Spider):
         self.topic.remove(response.url.split(self.domain_name)[1])
         #Находим подозрительные комментарии
         if len(classify_data) > 1:
-            #TODO: Пока так, дальше посмотрим
-            #sel = classify_data['MsgId'].apply(lambda x: 'topic-' not in x)
-            #classify_data = classify_data[sel].copy()
-            classify_data.reset_index(inplace=True, drop=True)#Всегда делать так
-            #sel = None
+            #Перед использованием приводим данные "в порядок"
+            classify_data.reset_index(inplace=True, drop=True)
             #Инкремент счетчика проверенных сообщений
             self.msg_num += len(classify_data)
-            #Слассификация данных
             self.log_print(classify_data.head())
-            cls_res = self.classifier.find_suspicious(classify_data)
-            #
+            #Классификация данных
+            cls_res = self.mdls.find_suspicious(classify_data)
+            #Анализ результатов
             if len(cls_res) > 0:
                 self.suspicious.append(cls_res)
                 self.susp_len += len(cls_res)
                 self.susp_num += len(cls_res)
-                #
+                #Если "подозрителдьных" сразу много - переходим к отправке отчета
                 if self.susp_len > 40:
                     sleep(4)
-                    return Request(self.report_page, 
+                    return Request(self.report_page,
                                    callback=self.on_report_form_enter,
                                    dont_filter=True)
-        #
+        #Переход к следующему состоянию
         return self.go_next(response)
     #--------------------------------------------------------------------------
     def on_topic_enter(self, response):
@@ -522,7 +563,7 @@ class LORSpider(Spider):
         self.log_print('==================================')
         form = response.css('form[action="%s"]'%self.topic[0])
         token = form.css('input[name="csrf"]::attr(value)').get()
-        sleep(1)
+        sleep(4)
         return FormRequest.from_response(response,
                                          formdata={'csrf': token, 'deleted':'1'},
                                          callback=self.get_topic_messages,
@@ -537,7 +578,7 @@ class LORSpider(Spider):
     #--------------------------------------------------------------------------
     def do_logout(self, response):
         """
-        Закончили сбор данных, выходим
+        Закончили работу, выходим
         """
         self.log_print(response)
         self.log_print('Logging out...')
@@ -550,7 +591,7 @@ class LORSpider(Spider):
     #--------------------------------------------------------------------------
     def logout(self, response):
         """
-        Закончили сбор данных, собираемся выходить
+        Закончили работу, собираемся выходить
         """
         self.log_print('Will logg out...')
         return Request(self.profile_page, callback=self.do_logout)
@@ -558,11 +599,10 @@ class LORSpider(Spider):
 if __name__ == '__main__':
     from scrapy.crawler import CrawlerProcess
 
-    process = CrawlerProcess({
-            'USER_AGENT': 'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1)'})
+    PROCESS = CrawlerProcess({'USER_AGENT': 'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1)'})
 
-    process.crawl(LORSpider)
-    process.start()
-    process.join()
+    PROCESS.crawl(LORSpider)
+    PROCESS.start()
+    PROCESS.join()
 else:
     SPIDER = LORSpider()

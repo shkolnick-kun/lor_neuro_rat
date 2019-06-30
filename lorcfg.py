@@ -15,14 +15,14 @@ OUT_FILE = 'log.txt'
 #Rat data path
 BOT_BASE_PATH = 'data/work'
 
-#LOR classifier:
-TOKENIZER = 'models/lor_tokenizer_с.pkl'
-CLASSFIER = 'models/lor_bin_class_c.h5'
-
+#LOR bin classifier:
+BIN_TOKENIZER = 'models/lor_tokenizer_с.pkl'
+BIN_CLASSIFIER = 'models/lor_bin_class_c.h5'
+BIN_THR = 0.8
+#LOR cat classifier
 CAT_TOKENIZER = 'models/tokenizer_cat.pkl'
 CAT_CLASSIFIER = 'models/cat_model.h5'
 CAT_LIST = 'models/cat_list.pkl'
 
 MAX_LEN = 150
 BATCH_SIZE = 8
-THR = 0.8
