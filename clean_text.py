@@ -116,6 +116,7 @@ PLS = ['я','ты','oн','oна','его','вы','ее','её','мне','мен�
        'того','этого','ним','этом','мой','нее','неё','тот','эту','моя','свою',
        'этой','том','им']
 stop_words = [w for w in stop_words if w not in PLS]
+stop_words.append('ебилд')
 
 morph = pymorphy2.MorphAnalyzer()
 def text_preprocess(s):
@@ -167,6 +168,12 @@ def data_prepare(x, verbous=True):
     return X
 #=============================================================================
 if __name__ == '__main__':
+    X = pd.read_pickle('data/Positive.pkl')
+    X = data_prepare(X)
+    X.to_pickle('data/XyWrdTokCat.pkl')
+    print(X.describe())
+    
+    '''
     X = pd.read_pickle('data/Dataset1с.pkl')
     X = data_prepare(X)
     X.to_pickle('data/XyWrdTok1с.pkl')
@@ -183,3 +190,4 @@ if __name__ == '__main__':
     X = data_prepare(X)
     X.to_pickle('data/XyWrdTok10с.pkl')
     print(X.describe())
+    '''
