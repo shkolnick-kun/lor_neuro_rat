@@ -78,7 +78,7 @@ class LORModels():
         #Бинарный классификатор
         self.bin_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER)
         #Модель категоризации
-        self.cat_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER)
+        self.cat_cls = LORTxtModel(cfg.CAT_TOKENIZER, cfg.CAT_CLASSIFIER)
         with open(cfg.CAT_LIST, 'rb') as f:
             self.cat_list = pk.load(f)
     #--------------------------------------------------------------------------
