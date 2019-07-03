@@ -172,8 +172,6 @@ if __name__ == '__main__':
     X = data_prepare(X)
     X.to_pickle('data/XyWrdTokCat.pkl')
     print(X.describe())
-    
-    '''
     X = pd.read_pickle('data/Dataset1с.pkl')
     X = data_prepare(X)
     X.to_pickle('data/XyWrdTok1с.pkl')
@@ -190,4 +188,4 @@ if __name__ == '__main__':
     X = data_prepare(X)
     X.to_pickle('data/XyWrdTok10с.pkl')
     print(X.describe())
-    '''
+    
