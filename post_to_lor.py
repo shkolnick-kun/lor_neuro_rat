@@ -29,8 +29,6 @@ from time import sleep
 import numpy as np
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
-from keras.backend.tensorflow_backend import set_session
-import tensorflow as tf
 import pandas as pd
 
 from scrapy.spiders import Spider
@@ -39,10 +37,6 @@ from scrapy.http import Request, FormRequest
 from clean_text import data_prepare
 
 import lorcfg as cfg
-
-TF_CONFIG = tf.ConfigProto()
-TF_CONFIG.gpu_options.per_process_gpu_memory_fraction = 0.2
-set_session(tf.Session(config=TF_CONFIG))
 ###############################################################################
 class LORTxtModel():
     """

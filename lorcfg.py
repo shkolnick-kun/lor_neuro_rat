@@ -5,6 +5,15 @@ Created on Sat May 25 23:44:39 2019
 @author: anon
 """
 
+from keras.backend.tensorflow_backend import set_session
+from tensorflow import ConfigProto
+from tensorflow import Session
+
+config = ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.2
+config.gpu_options.allow_growth = True
+set_session(Session(config=config))
+
 LOGIN  = 'user'
 PASS = 'pass'
 REPORT_TO = '15041564'
