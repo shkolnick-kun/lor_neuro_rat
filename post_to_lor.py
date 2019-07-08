@@ -20,7 +20,7 @@
     Please contact with me by E-mail: shkolnick.kun@gmail.com
 """
 from io import StringIO
-from json import JSONDecoder#, JSONEncoder
+from json import JSONDecoder, JSONEncoder
 import os
 import pickle as pk
 import re
@@ -169,13 +169,33 @@ class LORTopic():
             self.mod_time = mod_time
             return [self.url]
         return []
+    #--------------------------------------------------------------------------
+    def dump(self):
+        return {'URL': self.url, 'ModTime': self.mod_time}
 ###############################################################################
+TRACKER_DUMP_PATH = cfg.BOT_BASE_PATH + '/traker.pkl'
 class LORTracker():
     """
     Трекер - нужен для отслеживания изменений в трекере LOR.
     """
     topic = []
     url = []
+    def __init__(self):
+        try:
+            with open(TRACKER_DUMP_PATH, 'rb') as f:
+                for rec in pk.load(f):
+                    self.url.append(rec['URL'])
+                    self.topic.append(LORTopic(rec['URL'], rec['ModTime']))
+        except Exception as e:
+            print(e)
+    #--------------------------------------------------------------------------
+    def dump(self):
+        """
+        Сохранение трекера в файл
+        """
+        d = [t.dump() for t in self.topic]
+        with open(TRACKER_DUMP_PATH, 'wb+') as f:
+            pk.dump(d, f)
     #--------------------------------------------------------------------------
     def update(self, topic_url, mod_time):
         """
@@ -281,7 +301,9 @@ class LORSpider(Spider):
             return Request(next_url,
                            callback=self.on_topic_enter,
                            dont_filter=True)
-        #Топики кончились, идем...
+        #Топики кончились, сохраняем дамп трекера
+        self.tracker.dump()
+        #Идем...
         if cfg.ONE_SHOT:
             #На выход
             return self.logout(response)
