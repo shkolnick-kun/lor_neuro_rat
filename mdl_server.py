@@ -21,8 +21,8 @@ from clean_text import text_preprocess
 #Пишу быстро. Минимум проверок на корректность.
 #------------------------------------------------------------------------------
 #Конфигурация пока будет здесь (можно сделать опции запуска)
-import multiprocessing
-multiprocessing.set_start_method('spawn', True)
+#import multiprocessing
+#multiprocessing.set_start_method('spawn', True)
 
 from keras.backend.tensorflow_backend import set_session
 from tensorflow import ConfigProto
@@ -103,7 +103,7 @@ class TxtModel():
     #--------------------------------------------------------------------------
     def predict(self, X):
         """
-        X - датафрейм с тектами
+        X - список с тектов
         Возвращает результаты работы модели с текстами из X
         """
         tok = [text_preprocess(s)[1] for s in X]
@@ -121,7 +121,6 @@ def _do_classify(data):
     global mdl_bin_cls
     global mdl_cat_cls
     global mdl_cat_lst
-    sleep(10)
     txt_id = []
     text = []
     for rec in data:
@@ -213,6 +212,7 @@ async def gateway_factory():
     mdl_cat_cls = TxtModel(MDL_CAT_TOK, MDL_CAT_CLS)
     #
     loop = asyncio.get_event_loop()
+    #Для работы tf с multiporcessing нужна "магия", пока не осилил.
     #executor = concurrent.futures.ProcessPoolExecutor(max_workers=1)
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     #
