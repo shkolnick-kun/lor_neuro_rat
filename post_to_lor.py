@@ -20,13 +20,16 @@
     Please contact with me by E-mail: shkolnick.kun@gmail.com
 """
 from io import StringIO
-from json import JSONDecoder, JSONEncoder
+import json
 import os
 import pickle as pk
 import re
 from time import sleep
 
 import numpy as np
+
+from keras.preprocessing.text import text
+#from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
 import pandas as pd
@@ -48,8 +51,8 @@ class LORTxtModel():
         model_fname - имя файла модели
         """
         #Токенизатор
-        with open(tokenizer_fname, 'rb') as f:
-            self.tok = pk.load(f)
+        with open(tokenizer_fname, 'r') as f:
+            self.tok = text.tokenizer_from_json(json.load(f))
         #Модель
         self.mdl = load_model(model_fname)
     #--------------------------------------------------------------------------
@@ -262,7 +265,7 @@ class LORSpider(Spider):
         """
         После удачного входа на сайт - переходим к трекеру
         """
-        jsd = JSONDecoder()
+        jsd = json.JSONDecoder()
         res = jsd.decode(response.body_as_unicode())
         if res['username'] == cfg.LOGIN and res['loggedIn']:
             self.log_print('Logged in... Will do the job...')
