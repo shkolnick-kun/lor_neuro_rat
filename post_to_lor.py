@@ -27,55 +27,27 @@ import re
 from time import sleep
 
 import numpy as np
-
-from keras.preprocessing.text import text
-#from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-from keras.models import load_model
 import pandas as pd
 
 from scrapy.spiders import Spider
 from scrapy.http import Request, FormRequest
 
 from clean_text import data_prepare
+from lor_txt_model import LORTxtModel
 
 import lorcfg as cfg
 ###############################################################################
-class LORTxtModel():
-    """
-    Обертка над моделью keras
-    """
-    def __init__(self, tokenizer_fname, model_fname):
-        """
-        tokenizer_fname - имя файла токенизатора
-        model_fname - имя файла модели
-        """
-        #Токенизатор
-        with open(tokenizer_fname, 'r') as f:
-            self.tok = text.tokenizer_from_json(json.load(f))
-        #Модель
-        self.mdl = load_model(model_fname)
-    #--------------------------------------------------------------------------
-    def predict(self, X):
-        """
-        X - датафрейм с тектами
-        Возвращает результаты работы модели с текстами из X
-        """
-        X = data_prepare(X, verbous=False).copy()
-        X_str = [' '.join(tokens) for tokens in list(X['Tokens'])]
-        X_seq = self.tok.texts_to_sequences(X_str)
-        X_seq = pad_sequences(X_seq, maxlen=cfg.MAX_LEN)
-        return self.mdl.predict(X_seq, verbose=0, batch_size=cfg.BATCH_SIZE)
-#==============================================================================
 class LORModels():
     """
     Обертка над всеми моделями LOR + утилиты
     """
     def __init__(self):
         #Бинарный классификатор
-        self.bin_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER)
+        self.bin_cls = LORTxtModel(cfg.BIN_TOKENIZER, cfg.BIN_CLASSIFIER, 
+                                   cfg.MAX_LEN, cfg.BATCH_SIZE)
         #Модель категоризации
-        self.cat_cls = LORTxtModel(cfg.CAT_TOKENIZER, cfg.CAT_CLASSIFIER)
+        self.cat_cls = LORTxtModel(cfg.CAT_TOKENIZER, cfg.CAT_CLASSIFIER,
+                                   cfg.MAX_LEN, cfg.BATCH_SIZE)
         with open(cfg.CAT_LIST, 'rb') as f:
             self.cat_list = pk.load(f)
     #--------------------------------------------------------------------------
@@ -85,7 +57,7 @@ class LORModels():
         Принимает - датафрейм с постами
         Выдает - датафрейм с подозрительными постами (если их нет - пустой датафрейм)
         """
-        y = self.bin_cls.predict(X)
+        y = self.bin_cls.predict(list(X['Tokens']))
         X['BinProb'] = y
         return X[y > cfg.BIN_THR].copy()
     #--------------------------------------------------------------------------
@@ -110,7 +82,7 @@ class LORModels():
         Принимает датафрейм с подозрительными постами
         Возвращает его же с добавленным столбцом с топ-3 категорий.
         """
-        y = self.cat_cls.predict(X)
+        y = self.cat_cls.predict(list(X['Tokens']))
         X['CatRes'] = pd.Series(['']*len(X))
         for i in range(len(X)):
             X.at[i, 'CatRes'] = self.get_top3(y[i])
@@ -557,6 +529,8 @@ class LORSpider(Spider):
             #Инкремент счетчика проверенных сообщений
             self.msg_num += len(classify_data)
             self.log_print(classify_data.head())
+            #Подготовка данных
+            classify_data = data_prepare(classify_data, verbous=False).copy()
             #Классификация данных
             cls_res = self.mdls.find_suspicious(classify_data)
             #Анализ результатов

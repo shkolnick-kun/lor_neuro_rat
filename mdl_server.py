@@ -21,21 +21,18 @@
 """
 from enum import Enum
 import pickle as pk
-import struct as st
+#import struct as st
 #import sys
 import traceback
 #IO
-import aiohttp
+#import aiohttp
 from aiohttp import web
 import asyncio
 import concurrent.futures
 from functools import partial
 #AI
-import numpy as np
-from keras.preprocessing.sequence import pad_sequences
-from keras.models import load_model
-
 from clean_text import text_preprocess
+from lor_txt_model import LORTxtModel
 #------------------------------------------------------------------------------
 #Пишу быстро. Минимум проверок на корректность.
 #------------------------------------------------------------------------------
@@ -43,7 +40,7 @@ from clean_text import text_preprocess
 #import multiprocessing
 #multiprocessing.set_start_method('spawn', True)
 
-from keras.backend.tensorflow_backend import set_session
+#from keras.backend.tensorflow_backend import set_session
 from tensorflow import ConfigProto
 from tensorflow import Session
 from tensorflow import global_variables_initializer
@@ -65,11 +62,11 @@ def config_start():
 MDL_SEVER_HOST = '127.0.0.1'
 MDL_SEVER_PORT = 9000
 #LOR bin classifier:
-MDL_BIN_TOK = 'models/tokenizer_bin_05072019.pkl'
+MDL_BIN_TOK = 'models/tokenizer_bin_05072019.json'
 MDL_BIN_CLS = 'models/best_model_bin_05072019.h5'
 MDL_BIN_THR = 0.8
 #LOR cat classifier
-MDL_CAT_TOK = 'models/tokenizer_cat_03072019.pkl'
+MDL_CAT_TOK = 'models/tokenizer_cat_03072019.json'
 MDL_CAT_CLS = 'models/best_model_cat_03072019.h5'
 MDL_CAT_LST = 'models/cat_list_03072019.pkl'
 
@@ -103,39 +100,11 @@ def _jrpc_error(err, rq_id):
     print('Response: ', resp_data)
     return web.json_response(resp_data)
 #------------------------------------------------------------------------------
-#Пока так...
-class TxtModel():
-    """
-    Обертка над моделью keras
-    """
-    def __init__(self, tokenizer_fname, model_fname):
-        """
-        tokenizer_fname - имя файла токенизатора
-        model_fname - имя файла модели
-        """
-        #Токенизатор
-        with open(tokenizer_fname, 'rb') as f:
-            self.tok = pk.load(f)
-        #Модель
-        self.mdl = load_model(model_fname)
-        self.mdl._make_predict_function()
-    #--------------------------------------------------------------------------
-    def predict(self, X):
-        """
-        X - список с тектов
-        Возвращает результаты работы модели с текстами из X
-        """
-        tok = [text_preprocess(s)[1] for s in X]
-        X_str = [' '.join(tokens) for tokens in tok]
-        X_seq = self.tok.texts_to_sequences(X_str)
-        X_seq = pad_sequences(X_seq, maxlen=MDL_MAX_LEN)
-        return self.mdl.predict(X_seq, verbose=0, batch_size=MDL_BATCH_SIZE)
-#------------------------------------------------------------------------------
 mdl_bin_cls = None
 mdl_cat_cls = None
 mdl_cat_lst = None
 #------------------------------------------------------------------------------
-from time import sleep
+#from time import sleep
 def _do_classify(data):
     global mdl_bin_cls
     global mdl_cat_cls
@@ -144,11 +113,12 @@ def _do_classify(data):
     text = []
     for rec in data:
         txt_id.append(rec['id'])
-        text.append(rec['txt'])
+        text.append(text_preprocess(rec['txt'])[1])
     pos_index = [-1]*len(text)
     #Бинарная классификация
     print(text)
     bin_res = mdl_bin_cls.predict(text)
+    print(bin_res)
     pos_text = []
     for i, br in enumerate(bin_res):
         if br > MDL_BIN_THR:
@@ -161,9 +131,9 @@ def _do_classify(data):
     for i, pi in enumerate(pos_index):
         if pi >= 0:
             cp = dict(zip(mdl_cat_lst, [float(c) for c in cat_res[pi]]))
-            res.append({'id':txt_id[i], 'bin_prob': float(br[0]), 'cat_prob':cp})
+            res.append({'id':txt_id[i], 'bin_prob': float(bin_res[i]), 'cat_prob':cp})
         else:
-            res.append({'id':txt_id[i], 'bin_prob': float(br[0])})
+            res.append({'id':txt_id[i], 'bin_prob': float(bin_res[i])})
     return res
 #------------------------------------------------------------------------------
 def _do_classify_wrapper(data):
@@ -227,8 +197,10 @@ async def gateway_factory():
     global executor
     global loop
     #
-    mdl_bin_cls = TxtModel(MDL_BIN_TOK, MDL_BIN_CLS)
-    mdl_cat_cls = TxtModel(MDL_CAT_TOK, MDL_CAT_CLS)
+    mdl_bin_cls = LORTxtModel(MDL_BIN_TOK, MDL_BIN_CLS,
+                              MDL_MAX_LEN, MDL_BATCH_SIZE)
+    mdl_cat_cls = LORTxtModel(MDL_CAT_TOK, MDL_CAT_CLS,
+                              MDL_MAX_LEN, MDL_BATCH_SIZE)
     #
     loop = asyncio.get_event_loop()
     #Для работы tf с multiporcessing нужна "магия", пока не осилил.
