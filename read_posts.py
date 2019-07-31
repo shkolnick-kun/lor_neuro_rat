@@ -19,52 +19,35 @@
 
     Please contact with me by E-mail: shkolnick.kun@gmail.com
 """
-from json import JSONDecoder
 import os
-import pickle as pk
-#import pandas as pd
-import re
+import numpy as np
+import pandas as pd
 from progressbar.bar import ProgressBar
 
-#from lorcfg import *
-
-jsd = JSONDecoder()
-rec = []
-tid = []
-deleted = 0
-code = 0
-quotes = 0
-N = 0
+topics = []
 
 drl = os.listdir('data/download')
+drl.remove('arch.pkl')
+drl.remove('topic.pkl')
+drl.remove('topic_num.pkl')
 pb = ProgressBar(max_value = len(drl))
 pb.start()
+
 for i, name in enumerate(drl):
     bname, ext = name.split('.')
-    if 'txt' == ext:
-        with open('data/download/'+name, 'r') as f:
-            for l in f.readlines():
-                N += 1
-                rec.append(jsd.decode(l))
-                tpath = re.sub(r'_', '/', bname)
-                tpath = re.sub(r'thread', '', tpath)
-                tid.append(tpath)
-                
-                if rec[-1]['DelReason']:
-                    deleted += 1
-                
-                if rec[-1]['Code']:
-                    code += 1
-                    
-#                if rec[-1]['Quotes']:
-#                    quotes += 1
-#                    print('=======================================')
-#                    print(rec[-1]['Txt'])
-#                    print(rec[-1]['Quotes'])
-                pb.update(i)
+    if 'topic_' in bname:
+        topics.append(pd.read_pickle('data/download/'+name))
+    pb.update(i)
 pb.finish()
-                
+
+topic_data = pd.concat(topics, ignore_index=True, copy=True, sort=False)
+
+N = len(topic_data)
+deleted = len(topic_data[topic_data['DelReason'] != ''])
+code = np.sum(np.array([len(code) for code in topic_data['Code']]))
+quotes = np.sum(np.array([len(code) for code in topic_data['Quotes']]))
+
 print(N, deleted, code, quotes)
+
+topic_data.to_pickle('data/LOR_Txt_DataFrame.pkl')
         
-with open('data/all_data.pkl', 'wb+') as f:
-    pk.dump((tid, rec), f)
